@@ -1,0 +1,105 @@
+package AirlineAnalysis;
+
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.io.IOException;
+import java.net.URI;
+import java.util.HashMap;
+import java.util.Map;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.filecache.DistributedCache;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.IntWritable;
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Mapper.Context;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import org.apache.hadoop.mapreduce.Counter;
+import org.apache.hadoop.mapreduce.Counters;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
+// Answer C
+public class CodeShareAirlines {
+
+	public static class MyMapper extends Mapper<LongWritable,Text, Text, Text> {
+        
+		
+		private Map<String, String> abMap = new HashMap<String, String>();
+				private Text outputKey = new Text();
+				private Text outputValue = new Text();
+		
+		protected void setup(Context context) throws java.io.IOException, InterruptedException{
+			Path[] files = DistributedCache.getLocalCacheFiles(context.getConfiguration());
+			
+			
+			for (Path p : files) {
+				if (p.getName().equals("routes.dat")) {
+					BufferedReader reader = new BufferedReader(new FileReader(p.toString()));
+					String line = reader.readLine();
+					while(line != null) {
+						String[] tokens = line.split(",");
+						String airlineId = tokens[1];//airline id
+						String code = tokens[6];//airline Y for codeshare
+						abMap.put(airlineId, code);
+						line = reader.readLine();
+					}
+				}
+			}
+			if (abMap.isEmpty()) {
+				throw new IOException("Unable to load Abbrevation data.");
+			}
+		}
+
+		
+        protected void map(LongWritable key, Text value, Context context)
+            throws java.io.IOException, InterruptedException {
+        	
+        	
+        	String row = value.toString();
+        	String[] tokens = row.split(",");
+        	String lineId = tokens[0];//airline id
+        	String codeshare = abMap.get(lineId);//airline Y for codeshare
+        	
+        	outputKey.set(lineId);
+        	outputValue.set(tokens[1]+"   Code ="+codeshare);
+        	//String NoOfStops = tokens[7];//0 means no stop
+        	if(codeshare !=null && codeshare.equals("Y")){
+        		context.write(outputKey,outputValue);
+        	}
+        }  
+}
+	
+	
+  @SuppressWarnings("deprecation")
+public static void main(String[] args) 
+                  throws IOException, ClassNotFoundException, InterruptedException {
+    
+    Job job = new Job();
+    Configuration conf= new Configuration();
+    job.setJarByClass(CodeShareAirlines.class);
+    job.setJobName("Codeshare Y AirLines ");
+   // job.setNumReduceTasks(0);
+    
+    try{
+    DistributedCache.addCacheFile(new URI("routes.dat"), job.getConfiguration());
+    }catch(Exception e){
+    	System.out.println(e);
+    }
+    
+    job.setMapperClass(MyMapper.class);
+    Path outputPath = new Path(args[1]);
+
+    
+    job.setMapOutputKeyClass(Text.class);
+    job.setMapOutputValueClass(Text.class);
+    
+    FileInputFormat.addInputPath(job, new Path(args[0]));
+    FileOutputFormat.setOutputPath(job, new Path(args[1]));
+    outputPath.getFileSystem(conf).delete(outputPath);
+    job.waitForCompletion(true);
+    
+    
+  }
+}
